@@ -41,7 +41,7 @@
       "output": "release"
     },
     "files": [
-      "dist/renderer/**",
+      "dist/**",
       "src/**/*.js",
       "!src/renderer/**",
       "package.json"
@@ -50,7 +50,10 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64", "ia32"]
+          "arch": [
+            "x64",
+            "ia32"
+          ]
         }
       ],
       "artifactName": "${productName}-${version}-win-${arch}.${ext}"
