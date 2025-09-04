@@ -1,0 +1,67 @@
+{
+  "name": "qr-packaging-recorder",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "concurrently -k \"vite --config vite.config.ts\" \"wait-on tcp:5173 && ELECTRON_RENDERER_URL=http://localhost:5173 electron .\"",
+    "build:renderer": "vite build --config vite.config.ts",
+    "build": "tsc && vite build --config vite.config.ts",
+    "pack": "npm run build:renderer && electron-builder --dir",
+    "dist": "npm run build:renderer && electron-builder",
+    "dist:win": "npm run build:renderer && electron-builder -w"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@radix-ui/react-slot": "^1.0.2",
+    "clsx": "^2.1.1"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "typescript": "^5.5.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0",
+    "tailwindcss": "^3.4.10",
+    "postcss": "^8.4.41",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^8.2.2",
+    "wait-on": "^7.2.0",
+    "class-variance-authority": "^0.7.0",
+    "tailwind-merge": "^2.5.2",
+    "tailwindcss-animate": "^1.0.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.example.qrpackagingrecorder",
+    "productName": "QR Packaging Recorder",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/renderer/**",
+      "src/**/*.js",
+      "!src/renderer/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        }
+      ],
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "QR Packaging Recorder"
+    }
+  }
+}
