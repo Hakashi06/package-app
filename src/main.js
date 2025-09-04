@@ -210,6 +210,7 @@ ipcMain.handle('get-sessions', async (_evt) => {
 
 // Users list (from DB if available; fallback from sessions)
 ipcMain.handle('get-users', async () => {
+    // Preferred: DB-backed store
     if (typeof store.getUsers === 'function') {
         try {
             return store.getUsers();
@@ -217,14 +218,20 @@ ipcMain.handle('get-users', async () => {
             console.error('get-users via store failed; falling back', e);
         }
     }
+    // Fallback: merge users.json (maintained by add/rename/delete IPCs)
+    // with any names found in historical sessions
     try {
-        const sessions = await store.getSessions();
-        const names = Array.from(
-            new Set((sessions || []).map((s) => (s.employee || '').trim()).filter(Boolean))
-        ).sort((a, b) => a.localeCompare(b, 'vi'));
+        const fromFile = readUsersFile();
+        const sessions = (await store.getSessions()) || [];
+        const fromSessions = (sessions || [])
+            .map((s) => (s.employee || '').trim())
+            .filter(Boolean);
+        const names = Array.from(new Set([...(fromFile || []), ...fromSessions]))
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b, 'vi'));
         return names;
     } catch (e) {
-        return [];
+        return readUsersFile();
     }
 });
 
