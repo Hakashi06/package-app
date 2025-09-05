@@ -4,6 +4,16 @@ const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
 
+// Enable Chromium features for Shape Detection / BarcodeDetector on Windows/Linux
+// Do this before app.whenReady()
+try {
+    // Broadly enable experimental web features and Shape Detection stack
+    app.commandLine.appendSwitch('enable-experimental-web-platform-features');
+    // Try both feature switch types used across Chromium/Electron versions
+    app.commandLine.appendSwitch('enable-features', 'ShapeDetection,ShapeDetectionAPI,BarcodeDetection');
+    app.commandLine.appendSwitch('enable-blink-features', 'ShapeDetection,BarcodeDetector');
+} catch {}
+
 // Prefer SQLite store; fallback to JSON store if sqlite3 CLI unavailable
 let Store;
 try {
@@ -17,13 +27,20 @@ const ffmpegProcs = new Map(); // sessionId -> child process
 
 function createWindow() {
     mainWindow = new BrowserWindow({
+        // Ensure width/height apply to the web page (content),
+        // not including the window frame/menu (helps on Windows).
+        useContentSize: true,
         width: 1100,
         height: 750,
+        minWidth: 1000,
+        minHeight: 680,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: false,
+            // Enable Chromium experimental features (helps expose Shape Detection / BarcodeDetector on Windows)
+            experimentalFeatures: true,
         },
     });
 

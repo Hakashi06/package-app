@@ -75,6 +75,7 @@ export function App() {
     const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
     const [qrCamEnabled, setQrCamEnabled] = useState(false);
     const [qrCamSupported, setQrCamSupported] = useState<boolean | null>(null);
+    const [qrSupportInfo, setQrSupportInfo] = useState<string>('');
     const [lastQr, setLastQr] = useState<string | null>(null);
     const [showSettings, setShowSettings] = useState(true);
     const sessionIdRef = useRef<string | null>(null);
@@ -123,21 +124,28 @@ export function App() {
             }
             // Check BarcodeDetector support for camera QR
             try {
-                const supported =
-                    (window as any).BarcodeDetector &&
-                    (await (window as any).BarcodeDetector.getSupportedFormats?.());
-                setQrCamSupported(
-                    Array.isArray(supported)
-                        ? supported.includes('qr_code')
-                        : !!(window as any).BarcodeDetector
-                );
-                if ((window as any).BarcodeDetector) {
-                    barcodeDetectorRef.current = new (window as any).BarcodeDetector({
-                        formats: ['qr_code'],
-                    });
+                const BD: any = (window as any).BarcodeDetector;
+                let supported: any = null;
+                if (BD && typeof BD.getSupportedFormats === 'function') {
+                    try {
+                        supported = await BD.getSupportedFormats();
+                    } catch (e) {
+                        supported = null;
+                    }
                 }
-            } catch {
+                const ok = Array.isArray(supported)
+                    ? supported.includes('qr_code')
+                    : !!BD;
+                setQrCamSupported(ok);
+                setQrSupportInfo(
+                    `BarcodeDetector: ${!!BD}; formats: ${Array.isArray(supported) ? supported.join(',') : 'n/a'}`
+                );
+                if (BD && ok) {
+                    barcodeDetectorRef.current = new BD({ formats: ['qr_code'] });
+                }
+            } catch (e) {
                 setQrCamSupported(false);
+                setQrSupportInfo(`BarcodeDetector error: ${String(e)}`);
             }
             refreshMetrics();
             // Load known employees from DB (fallback handled in main process)
@@ -795,6 +803,7 @@ export function App() {
                                                     ? ' • Nhập tên nhân viên để bật'
                                                     : ''}
                                                 {lastQr ? ` • QR gần nhất: ${lastQr}` : ''}
+                                                {qrSupportInfo ? ` • ${qrSupportInfo}` : ''}
                                             </div>
                                         </div>
                                     </>
