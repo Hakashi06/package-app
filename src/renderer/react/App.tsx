@@ -714,7 +714,7 @@ export function App() {
                             className={
                                 'w-full rounded-md bg-black overflow-hidden ' +
                                 (showSettings
-                                    ? 'aspect-video'
+                                    ? 'aspect-video max-h-[calc(100vh-220px)]'
                                     : 'aspect-video max-h-[calc(100vh-220px)]')
                             }
                         >
@@ -736,7 +736,7 @@ export function App() {
                     <Card>
                         <div className='space-y-2'>
                             <div className='text-lg font-semibold'>Thiết lập</div>
-                            <div className='grid grid-cols-[120px_1fr] gap-2 items-center'>
+                            <div className='grid gap-2 items-center'>
                                 <Label>Chế độ camera</Label>
                                 <Select
                                     value={config.cameraMode}
