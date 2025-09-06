@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import jsQR from 'jsqr';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Input } from '../components/ui/input';
@@ -80,6 +81,8 @@ export function App() {
     const [showSettings, setShowSettings] = useState(true);
     const sessionIdRef = useRef<string | null>(null);
     const videoRef = useRef<HTMLVideoElement | null>(null);
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const canvasCtxRef = useRef<CanvasRenderingContext2D | null>(null);
     const usbRef = useRef<UsbRecorder | null>(null);
     const currentOutPathRef = useRef<string | null>(null);
     const scannerInputRef = useRef<HTMLInputElement | null>(null);
@@ -141,7 +144,14 @@ export function App() {
                     `BarcodeDetector: ${!!BD}; formats: ${Array.isArray(supported) ? supported.join(',') : 'n/a'}`
                 );
                 if (BD && ok) {
-                    barcodeDetectorRef.current = new BD({ formats: ['qr_code'] });
+                    const fmts = ['qr_code', 'qr'];
+                    try {
+                        barcodeDetectorRef.current = new BD({ formats: fmts });
+                    } catch {
+                        try {
+                            barcodeDetectorRef.current = new BD();
+                        } catch {}
+                    }
                 }
             } catch (e) {
                 setQrCamSupported(false);
@@ -477,7 +487,7 @@ export function App() {
         }
     }
 
-    // Camera QR scanning loop
+    // Camera QR scanning loop (BarcodeDetector with jsQR fallback)
     useEffect(() => {
         if (
             !qrCamEnabled ||
@@ -495,15 +505,58 @@ export function App() {
             try {
                 const video = videoRef.current as HTMLVideoElement | null;
                 const det = barcodeDetectorRef.current;
-                if (video && det && video.readyState >= 2) {
-                    const results = await det.detect(video);
-                    if (results && results.length) {
-                        const value = results[0].rawValue?.trim();
-                        if (value && value !== lastValue) {
-                            lastValue = value;
-                            setLastQr(value);
-                            await onScan(value);
+                if (video && video.readyState >= 2) {
+                    // 1) Prefer native BarcodeDetector if available
+                    let decoded: string | null = null;
+                    if (det) {
+                        try {
+                            const results = await det.detect(video);
+                            if (results && results.length) {
+                                decoded = results[0].rawValue?.trim() || null;
+                            }
+                        } catch (e) {
+                            // Ignore and try fallback
                         }
+                    }
+
+                    // 2) Fallback to jsQR if nothing found
+                    if (!decoded) {
+                        const vw = video.videoWidth;
+                        const vh = video.videoHeight;
+                        if (vw > 0 && vh > 0) {
+                            let cvs = canvasRef.current;
+                            if (!cvs) {
+                                cvs = document.createElement('canvas');
+                                canvasRef.current = cvs;
+                            }
+                            // Downscale to reduce CPU usage
+                            const maxW = 640;
+                            const scale = Math.min(1, maxW / vw);
+                            const cw = Math.max(1, Math.floor(vw * scale));
+                            const ch = Math.max(1, Math.floor(vh * scale));
+                            if (cvs.width !== cw || cvs.height !== ch) {
+                                cvs.width = cw;
+                                cvs.height = ch;
+                                canvasCtxRef.current = cvs.getContext('2d');
+                            }
+                            const ctx = canvasCtxRef.current || cvs.getContext('2d');
+                            if (ctx) {
+                                ctx.drawImage(video, 0, 0, cw, ch);
+                                const img = ctx.getImageData(0, 0, cw, ch);
+                                try {
+                                    const res = jsQR(img.data, cw, ch, { inversionAttempts: 'dontInvert' });
+                                    if (res && res.data) {
+                                        decoded = String(res.data).trim();
+                                    }
+                                } catch {}
+                            }
+                        }
+                    }
+
+                    if (decoded && decoded !== lastValue) {
+                        lastValue = decoded;
+                        setLastQr(decoded);
+                        await onScan(decoded);
                     }
                 }
             } catch (e) {
@@ -778,11 +831,7 @@ export function App() {
                                             <Button
                                                 variant='outline'
                                                 onClick={() => setQrCamEnabled((v) => !v)}
-                                                disabled={
-                                                    !cameraReady ||
-                                                    qrCamSupported === false ||
-                                                    !config.employeeName?.trim()
-                                                }
+                                                disabled={!cameraReady || !config.employeeName?.trim()}
                                             >
                                                 {qrCamEnabled ? 'Tắt' : 'Bật'}
                                             </Button>
@@ -798,7 +847,7 @@ export function App() {
                                                     ? 'Đang kiểm tra hỗ trợ…'
                                                     : qrCamSupported
                                                     ? 'Hỗ trợ'
-                                                    : 'Không hỗ trợ (cần Chromium BarcodeDetector)'}
+                                                    : 'Không hỗ trợ BarcodeDetector • dùng fallback jsQR'}
                                                 {!config.employeeName?.trim()
                                                     ? ' • Nhập tên nhân viên để bật'
                                                     : ''}

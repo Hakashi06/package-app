@@ -39,3 +39,24 @@ declare global {
 interface BarcodeDetector {
     detect(source: CanvasImageSource): Promise<Array<{ rawValue: string; format: string }>>;
 }
+
+// Minimal typing for jsQR fallback
+declare module 'jsqr' {
+    export interface JsQrResultPoint { x: number; y: number }
+    export interface JsQrResult {
+        data: string;
+        binaryData: Uint8Array;
+        location: {
+            topLeftCorner: JsQrResultPoint;
+            topRightCorner: JsQrResultPoint;
+            bottomLeftCorner: JsQrResultPoint;
+            bottomRightCorner: JsQrResultPoint;
+        };
+    }
+    export default function jsQR(
+        data: Uint8ClampedArray,
+        width: number,
+        height: number,
+        options?: { inversionAttempts?: 'dontInvert' | 'onlyInvert' | 'attemptBoth' | 'invertFirst' }
+    ): JsQrResult | null;
+}
