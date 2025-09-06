@@ -843,16 +843,7 @@ export function App() {
                                                 Xoá QR
                                             </Button>
                                             <div className='text-sm text-muted-foreground'>
-                                                {qrCamSupported === null
-                                                    ? 'Đang kiểm tra hỗ trợ…'
-                                                    : qrCamSupported
-                                                    ? 'Hỗ trợ'
-                                                    : 'Không hỗ trợ BarcodeDetector • dùng fallback jsQR'}
-                                                {!config.employeeName?.trim()
-                                                    ? ' • Nhập tên nhân viên để bật'
-                                                    : ''}
-                                                {lastQr ? ` • QR gần nhất: ${lastQr}` : ''}
-                                                {qrSupportInfo ? ` • ${qrSupportInfo}` : ''}
+                                                {lastQr ? ` QR gần nhất: ${lastQr}` : ''}
                                             </div>
                                         </div>
                                     </>

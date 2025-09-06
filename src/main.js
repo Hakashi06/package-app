@@ -4,6 +4,18 @@ const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
 
+// Prefer bundled ffmpeg (ffmpeg-static) if available; fallback to system PATH
+let ffmpegPath = 'ffmpeg';
+try {
+    const ffmpegStatic = require('ffmpeg-static');
+    if (ffmpegStatic && typeof ffmpegStatic === 'string') {
+        // When packaged with asar, ensure we point to the unpacked path
+        ffmpegPath = ffmpegStatic.includes('app.asar')
+            ? ffmpegStatic.replace('app.asar', 'app.asar.unpacked')
+            : ffmpegStatic;
+    }
+} catch {}
+
 // Enable Chromium features for Shape Detection / BarcodeDetector on Windows/Linux
 // Do this before app.whenReady()
 try {
@@ -110,7 +122,7 @@ ipcMain.handle('write-file', async (_evt, { filePath, data }) => {
 
 ipcMain.handle('check-ffmpeg', async () => {
     return new Promise((resolve) => {
-        const proc = spawn('ffmpeg', ['-version']);
+        const proc = spawn(ffmpegPath, ['-version']);
         let ok = false;
         proc.on('error', () => resolve({ available: false }));
         proc.stderr.on('data', () => {});
@@ -138,7 +150,7 @@ ipcMain.handle('transcode-webm-to-mp4', async (_evt, { inputPath, outputPath }) 
             '+faststart',
             outputPath,
         ];
-        const proc = spawn('ffmpeg', args);
+        const proc = spawn(ffmpegPath, args);
         let stderr = '';
         proc.stderr.on('data', (d) => (stderr += d.toString()));
         proc.on('error', (e) => reject(e));
@@ -178,7 +190,7 @@ ipcMain.handle('record-rtsp-start', async (_evt, { sessionId, rtspUrl, outputPat
               '-y',
               outputPath,
           ];
-    const proc = spawn('ffmpeg', args);
+    const proc = spawn(ffmpegPath, args);
     ffmpegProcs.set(sessionId, proc);
     return new Promise((resolve, reject) => {
         let started = false;
