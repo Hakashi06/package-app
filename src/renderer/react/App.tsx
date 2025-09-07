@@ -78,6 +78,10 @@ export function App() {
     const [qrCamSupported, setQrCamSupported] = useState<boolean | null>(null);
     const [qrSupportInfo, setQrSupportInfo] = useState<string>('');
     const [lastQr, setLastQr] = useState<string | null>(null);
+    const lastQrRef = useRef<string | null>(null);
+    useEffect(() => {
+        lastQrRef.current = lastQr;
+    }, [lastQr]);
     const [showSettings, setShowSettings] = useState(true);
     const sessionIdRef = useRef<string | null>(null);
     const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -88,6 +92,8 @@ export function App() {
     const scannerInputRef = useRef<HTMLInputElement | null>(null);
     const barcodeDetectorRef = useRef<any>(null);
     const lastScanAtRef = useRef<number>(0);
+    const lastStoppedOrderRef = useRef<string | null>(null);
+    const lastStoppedAtRef = useRef<number>(0);
 
     // Determine if current focus is on a user-editable field
     function isEditableElement(el: Element | null) {
@@ -251,14 +257,26 @@ export function App() {
     }, [recording, startTime]);
 
     async function onScan(text: string) {
+        const order = parseOrderCode(text);
+
+        // Nếu đang ghi và quét lại đúng mã hiện tại -> dừng ngay, bỏ qua throttle
+        if (recording && orderCode === order) {
+            await stopRecording();
+            return;
+        }
+
+        // Nếu vừa dừng và lại gặp đúng mã đó trong thời gian ngắn -> bỏ qua (không quay lại ngay)
+        if (!recording && lastStoppedOrderRef.current === order) {
+            const since = Date.now() - lastStoppedAtRef.current;
+            if (since < 3000) return; // cooldown 3s cho cùng mã
+        }
+
+        // Throttle: tối thiểu 2 giây giữa các lần xử lý scan (không áp dụng cho dừng)
         const now = Date.now();
-        // Throttle: tối thiểu 2 giây giữa các lần xử lý scan
         if (now - lastScanAtRef.current < 2000) return;
         lastScanAtRef.current = now;
 
-        const order = parseOrderCode(text);
         if (!recording) await startRecording(order);
-        else if (orderCode === order) await stopRecording();
         else alert(`Đang ghi cho mã ${orderCode}. Quét lại cùng mã để dừng.`);
     }
 
@@ -376,6 +394,12 @@ export function App() {
             durationMs,
             filePath,
         });
+
+        // Ghi nhận mã vừa dừng để tránh khởi động lại ngay
+        try {
+            lastStoppedOrderRef.current = orderCode || null;
+            lastStoppedAtRef.current = Date.now();
+        } catch {}
 
         // Reset states
         setRecording(false);
@@ -559,7 +583,7 @@ export function App() {
                         }
                     }
 
-                    if (decoded && decoded !== lastValue) {
+                    if (decoded && decoded !== lastValue && decoded !== (lastQrRef.current || '')) {
                         lastValue = decoded;
                         setLastQr(decoded);
                         await onScan(decoded);
