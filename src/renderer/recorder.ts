@@ -1,3 +1,9 @@
+type OverlayOpts = {
+    template: string;
+    vars?: Record<string, string>;
+    startMs?: number; // used for {elapsed}
+};
+
 export class UsbRecorder {
     private videoEl: HTMLVideoElement;
     private stream: MediaStream | null = null;
@@ -9,6 +15,7 @@ export class UsbRecorder {
     private rafId: number | null = null;
     private canvasStream: MediaStream | null = null;
     private compositeStream: MediaStream | null = null;
+    private overlayOpts: OverlayOpts | null = null;
 
     constructor(videoEl: HTMLVideoElement) {
         this.videoEl = videoEl;
@@ -34,7 +41,7 @@ export class UsbRecorder {
         if (!this.mime) this.mime = '';
     }
 
-    start(overlayText?: string) {
+    start(overlay?: OverlayOpts) {
         if (!this.stream) throw new Error('stream not ready');
         if (this.mediaRecorder && this.mediaRecorder.state === 'recording') return;
         this.chunks = [];
@@ -42,9 +49,35 @@ export class UsbRecorder {
         let recordStream: MediaStream = this.stream!;
 
         // If overlay text requested, render video into a canvas and capture that stream
-        if (overlayText) {
+        if (overlay) {
+            this.overlayOpts = overlay;
             if (!this.canvas) this.canvas = document.createElement('canvas');
             const cvs = this.canvas;
+            const fmtElapsed = (ms: number) => {
+                const totalSec = Math.max(0, Math.floor(ms / 1000));
+                const hh = Math.floor(totalSec / 3600);
+                const mm = Math.floor((totalSec % 3600) / 60);
+                const ss = totalSec % 60;
+                if (hh > 0) return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+                return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+            };
+            const buildText = () => {
+                const tmpl = this.overlayOpts?.template || '';
+                const base = this.overlayOpts?.vars || {};
+                const nowStr = new Date().toLocaleString();
+                const start = this.overlayOpts?.startMs || Date.now();
+                const elapsed = fmtElapsed(Date.now() - start);
+                let txt = tmpl;
+                const pairs: Record<string, string> = {
+                    time: nowStr,
+                    elapsed,
+                    ...base,
+                };
+                for (const [k, v] of Object.entries(pairs)) {
+                    txt = txt.replace(new RegExp(`\\{${k}\\}`, 'g'), v ?? '');
+                }
+                return txt;
+            };
             const setupCanvas = () => {
                 const vw = this.videoEl.videoWidth;
                 const vh = this.videoEl.videoHeight;
@@ -68,7 +101,7 @@ export class UsbRecorder {
                         const fontSize = Math.max(16, Math.floor(cvs!.height * 0.04));
                         ctx.font = `${fontSize}px sans-serif`;
                         ctx.textBaseline = 'top';
-                        const text = overlayText;
+                        const text = buildText();
                         const metrics = ctx.measureText(text);
                         const tw = Math.ceil(metrics.width);
                         const th = Math.ceil(fontSize * 1.4);
@@ -142,6 +175,7 @@ export class UsbRecorder {
             this.canvasStream = null;
             this.compositeStream = null;
         } catch {}
+        this.overlayOpts = null;
         return blob;
     }
 

@@ -283,17 +283,19 @@ export function App() {
                 }
                 await usbRef.current.init(config.videoDeviceId || undefined);
                 // Build overlay text if enabled
-                let overlayText: string | undefined;
+                // Build overlay template + vars if enabled
+                let overlay: any = undefined;
                 if (config.overlayEnabled) {
-                    const tmpl = config.overlayTemplate || 'Mã: {order} • NV: {employee}';
-                    overlayText = tmpl
-                        .replace('{order}', order || '')
-                        .replace('{employee}', config.employeeName || '')
-                        .replace('{time}', new Date().toLocaleString());
+                    const tmpl = config.overlayTemplate || 'Mã: {order} • NV: {employee} • {time}';
+                    overlay = {
+                        template: tmpl,
+                        vars: { order, employee: config.employeeName || '' },
+                        startMs: Date.now(),
+                    };
                 }
 
                 // Start capture first; only mark recording when successful
-                usbRef.current.start(overlayText);
+                usbRef.current.start(overlay);
 
                 sessionIdRef.current = sessionId;
                 setOrderCode(order);
@@ -896,7 +898,7 @@ export function App() {
                                             />
                                         </div>
                                         <div className='text-xs text-muted-foreground'>
-                                            Biến: {`{order}`}, {`{employee}`}, {`{time}`}
+                                            Biến: {`{order}`}, {`{employee}`}, {`{time}`}, {`{elapsed}`}
                                         </div>
                                     </>
                                 )}
