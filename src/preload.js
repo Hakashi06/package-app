@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('api', {
     checkFFmpeg: () => ipcRenderer.invoke('check-ffmpeg'),
     transcodeWebmToMp4: (inputPath, outputPath) =>
         ipcRenderer.invoke('transcode-webm-to-mp4', { inputPath, outputPath }),
+    transcodeWebmToMp4Bg: (inputPath, outputPath, deleteInput = true) =>
+        ipcRenderer.invoke('transcode-webm-to-mp4-bg', { inputPath, outputPath, deleteInput }),
     recordRtspStart: (sessionId, rtspUrl, outputPath, transcode) =>
         ipcRenderer.invoke('record-rtsp-start', { sessionId, rtspUrl, outputPath, transcode }),
     recordRtspStop: (sessionId) => ipcRenderer.invoke('record-rtsp-stop', { sessionId }),

@@ -15,13 +15,14 @@ export class UsbRecorder {
             : true;
         this.stream = await navigator.mediaDevices.getUserMedia({ video, audio: true });
         this.videoEl.srcObject = this.stream as any;
-        // Prefer WebM where MediaRecorder is reliable; avoid MP4 container from MediaRecorder
-        // which often yields unplayable/black files across platforms.
+        // Prefer MP4 if reliably supported to avoid slow post-stop transcode.
+        // Fall back to WebM where MediaRecorder is more reliable.
         const candidates = [
+            'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+            'video/mp4',
             'video/webm;codecs=vp9,opus',
             'video/webm;codecs=vp8,opus',
             'video/webm',
-            // Intentionally de-prioritize/avoid mp4; we'll transcode to mp4 via FFmpeg when needed.
         ];
         this.mime =
             candidates.find((t) => (window as any).MediaRecorder?.isTypeSupported?.(t)) || '';

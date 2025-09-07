@@ -338,25 +338,31 @@ export function App() {
             let savedAsMp4 = false;
 
             const anyBlob: any = blob as any;
+            const data = await blob.arrayBuffer();
             if (anyBlob && anyBlob.type && String(anyBlob.type).startsWith('video/mp4')) {
-                await window.api.writeFile(filePath, await blob.arrayBuffer());
+                // Direct MP4: write final file and return fast
+                await window.api.writeFile(filePath, data);
                 savedAsMp4 = true;
             } else if (ffmpegAvailable) {
                 try {
+                    // Write WEBM once, kick off background transcode to MP4, return immediately
                     const tmpPath = window.api.pathJoin(window.api.tmpDir(), `${sessionId}.webm`);
-                    await window.api.writeFile(tmpPath, await blob.arrayBuffer());
-                    await window.api.transcodeWebmToMp4(tmpPath, filePath);
-                    savedAsMp4 = true;
+                    await window.api.writeFile(tmpPath, data);
+                    // Fire-and-forget; input will be deleted when done
+                    window.api
+                        .transcodeWebmToMp4Bg(tmpPath, filePath, true)
+                        .catch((e: any) => console.error('BG transcode failed', e));
+                    savedAsMp4 = true; // We'll deliver MP4 later; session logs now
                 } catch (e) {
-                    console.error('Transcode to MP4 failed', e);
+                    console.error('Transcode (bg) kickoff failed', e);
                     savedAsMp4 = false;
                 }
             }
 
             if (!savedAsMp4) {
-                // Fallback: save as WEBM once (do not call stop() again)
+                // Fallback: save as WEBM quickly (no transcode)
                 filePath = filePath.replace(/\.mp4$/i, '.webm');
-                await window.api.writeFile(filePath, await blob.arrayBuffer());
+                await window.api.writeFile(filePath, data);
             }
         } else {
             await window.api.recordRtspStop(sessionId);

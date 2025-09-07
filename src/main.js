@@ -161,6 +161,42 @@ ipcMain.handle('transcode-webm-to-mp4', async (_evt, { inputPath, outputPath }) 
     });
 });
 
+// Fire-and-forget background transcode, optionally delete input when done
+ipcMain.handle('transcode-webm-to-mp4-bg', async (_evt, { inputPath, outputPath, deleteInput }) => {
+    try {
+        await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
+    } catch {}
+    const args = [
+        '-y',
+        '-i',
+        inputPath,
+        '-c:v',
+        'libx264',
+        '-preset',
+        'superfast',
+        '-c:a',
+        'aac',
+        '-movflags',
+        '+faststart',
+        outputPath,
+    ];
+    const proc = spawn(ffmpegPath, args);
+    let stderr = '';
+    proc.stderr.on('data', (d) => (stderr += d.toString()));
+    proc.on('close', async (code) => {
+        if (code === 0 && deleteInput) {
+            try {
+                await fs.promises.unlink(inputPath);
+            } catch {}
+        }
+        if (code !== 0) {
+            console.error('Background transcode failed', stderr);
+        }
+    });
+    // Return immediately; processing continues in background
+    return { started: true };
+});
+
 ipcMain.handle('record-rtsp-start', async (_evt, { sessionId, rtspUrl, outputPath, transcode }) => {
     await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
     const args = transcode

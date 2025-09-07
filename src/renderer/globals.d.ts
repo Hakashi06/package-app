@@ -8,7 +8,12 @@ declare global {
             setConfig: (cfg: any) => Promise<any>;
             writeFile: (filePath: string, data: ArrayBuffer) => Promise<boolean>;
             checkFFmpeg: () => Promise<{ available: boolean }>;
-            transcodeWebmToMp4: (inputPath: string, outputPath: string) => Promise<any>;
+        transcodeWebmToMp4: (inputPath: string, outputPath: string) => Promise<any>;
+        transcodeWebmToMp4Bg: (
+            inputPath: string,
+            outputPath: string,
+            deleteInput?: boolean
+        ) => Promise<{ started: boolean }>;        
             recordRtspStart: (
                 sessionId: string,
                 rtspUrl: string,
