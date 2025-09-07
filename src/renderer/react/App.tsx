@@ -13,6 +13,8 @@ type Config = {
     rtspUrl: string;
     employeeName: string;
     rtspTranscode: boolean;
+    overlayEnabled?: boolean;
+    overlayTemplate?: string; // supports {order}, {employee}, {time}
 };
 
 type Session = {
@@ -57,6 +59,8 @@ export function App() {
         rtspUrl: '',
         employeeName: '',
         rtspTranscode: false,
+        overlayEnabled: false,
+        overlayTemplate: 'Mã: {order} • NV: {employee}',
     });
     const [ffmpegAvailable, setFfmpegAvailable] = useState(false);
     const [recording, setRecording] = useState(false);
@@ -78,10 +82,6 @@ export function App() {
     const [qrCamSupported, setQrCamSupported] = useState<boolean | null>(null);
     const [qrSupportInfo, setQrSupportInfo] = useState<string>('');
     const [lastQr, setLastQr] = useState<string | null>(null);
-    const lastQrRef = useRef<string | null>(null);
-    useEffect(() => {
-        lastQrRef.current = lastQr;
-    }, [lastQr]);
     const [showSettings, setShowSettings] = useState(true);
     const sessionIdRef = useRef<string | null>(null);
     const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -92,8 +92,6 @@ export function App() {
     const scannerInputRef = useRef<HTMLInputElement | null>(null);
     const barcodeDetectorRef = useRef<any>(null);
     const lastScanAtRef = useRef<number>(0);
-    const lastStoppedOrderRef = useRef<string | null>(null);
-    const lastStoppedAtRef = useRef<number>(0);
 
     // Determine if current focus is on a user-editable field
     function isEditableElement(el: Element | null) {
@@ -142,12 +140,12 @@ export function App() {
                         supported = null;
                     }
                 }
-                const ok = Array.isArray(supported)
-                    ? supported.includes('qr_code')
-                    : !!BD;
+                const ok = Array.isArray(supported) ? supported.includes('qr_code') : !!BD;
                 setQrCamSupported(ok);
                 setQrSupportInfo(
-                    `BarcodeDetector: ${!!BD}; formats: ${Array.isArray(supported) ? supported.join(',') : 'n/a'}`
+                    `BarcodeDetector: ${!!BD}; formats: ${
+                        Array.isArray(supported) ? supported.join(',') : 'n/a'
+                    }`
                 );
                 if (BD && ok) {
                     const fmts = ['qr_code', 'qr'];
@@ -257,26 +255,14 @@ export function App() {
     }, [recording, startTime]);
 
     async function onScan(text: string) {
-        const order = parseOrderCode(text);
-
-        // Nếu đang ghi và quét lại đúng mã hiện tại -> dừng ngay, bỏ qua throttle
-        if (recording && orderCode === order) {
-            await stopRecording();
-            return;
-        }
-
-        // Nếu vừa dừng và lại gặp đúng mã đó trong thời gian ngắn -> bỏ qua (không quay lại ngay)
-        if (!recording && lastStoppedOrderRef.current === order) {
-            const since = Date.now() - lastStoppedAtRef.current;
-            if (since < 3000) return; // cooldown 3s cho cùng mã
-        }
-
-        // Throttle: tối thiểu 2 giây giữa các lần xử lý scan (không áp dụng cho dừng)
         const now = Date.now();
+        // Throttle: tối thiểu 2 giây giữa các lần xử lý scan
         if (now - lastScanAtRef.current < 2000) return;
         lastScanAtRef.current = now;
 
+        const order = parseOrderCode(text);
         if (!recording) await startRecording(order);
+        else if (orderCode === order) await stopRecording();
         else alert(`Đang ghi cho mã ${orderCode}. Quét lại cùng mã để dừng.`);
     }
 
@@ -296,8 +282,18 @@ export function App() {
                     usbRef.current = new UsbRecorder(videoRef.current!);
                 }
                 await usbRef.current.init(config.videoDeviceId || undefined);
+                // Build overlay text if enabled
+                let overlayText: string | undefined;
+                if (config.overlayEnabled) {
+                    const tmpl = config.overlayTemplate || 'Mã: {order} • NV: {employee}';
+                    overlayText = tmpl
+                        .replace('{order}', order || '')
+                        .replace('{employee}', config.employeeName || '')
+                        .replace('{time}', new Date().toLocaleString());
+                }
+
                 // Start capture first; only mark recording when successful
-                usbRef.current.start();
+                usbRef.current.start(overlayText);
 
                 sessionIdRef.current = sessionId;
                 setOrderCode(order);
@@ -394,12 +390,6 @@ export function App() {
             durationMs,
             filePath,
         });
-
-        // Ghi nhận mã vừa dừng để tránh khởi động lại ngay
-        try {
-            lastStoppedOrderRef.current = orderCode || null;
-            lastStoppedAtRef.current = Date.now();
-        } catch {}
 
         // Reset states
         setRecording(false);
@@ -574,7 +564,9 @@ export function App() {
                                 ctx.drawImage(video, 0, 0, cw, ch);
                                 const img = ctx.getImageData(0, 0, cw, ch);
                                 try {
-                                    const res = jsQR(img.data, cw, ch, { inversionAttempts: 'dontInvert' });
+                                    const res = jsQR(img.data, cw, ch, {
+                                        inversionAttempts: 'dontInvert',
+                                    });
                                     if (res && res.data) {
                                         decoded = String(res.data).trim();
                                     }
@@ -583,7 +575,7 @@ export function App() {
                         }
                     }
 
-                    if (decoded && decoded !== lastValue && decoded !== (lastQrRef.current || '')) {
+                    if (decoded && decoded !== lastValue) {
                         lastValue = decoded;
                         setLastQr(decoded);
                         await onScan(decoded);
@@ -861,7 +853,9 @@ export function App() {
                                             <Button
                                                 variant='outline'
                                                 onClick={() => setQrCamEnabled((v) => !v)}
-                                                disabled={!cameraReady || !config.employeeName?.trim()}
+                                                disabled={
+                                                    !cameraReady || !config.employeeName?.trim()
+                                                }
                                             >
                                                 {qrCamEnabled ? 'Tắt' : 'Bật'}
                                             </Button>
@@ -875,6 +869,34 @@ export function App() {
                                             <div className='text-sm text-muted-foreground'>
                                                 {lastQr ? ` QR gần nhất: ${lastQr}` : ''}
                                             </div>
+                                        </div>
+
+                                        <Label>Nhúng chữ vào video (USB)</Label>
+                                        <div className='flex items-center gap-2'>
+                                            <Button
+                                                variant='outline'
+                                                onClick={() =>
+                                                    setConfig((c) => ({
+                                                        ...c,
+                                                        overlayEnabled: !c.overlayEnabled,
+                                                    }))
+                                                }
+                                            >
+                                                {config.overlayEnabled ? 'Tắt' : 'Bật'}
+                                            </Button>
+                                            <Input
+                                                placeholder='Mẫu: Mã: {order} • NV: {employee}'
+                                                value={config.overlayTemplate || ''}
+                                                onChange={(e) =>
+                                                    setConfig({
+                                                        ...config,
+                                                        overlayTemplate: e.target.value,
+                                                    })
+                                                }
+                                            />
+                                        </div>
+                                        <div className='text-xs text-muted-foreground'>
+                                            Biến: {`{order}`}, {`{employee}`}, {`{time}`}
                                         </div>
                                     </>
                                 )}
