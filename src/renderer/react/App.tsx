@@ -59,8 +59,8 @@ export function App() {
         rtspUrl: '',
         employeeName: '',
         rtspTranscode: false,
-        overlayEnabled: false,
-        overlayTemplate: 'Mã: {order} • NV: {employee}',
+        overlayEnabled: true,
+        overlayTemplate: '{order}-{time}',
     });
     const [ffmpegAvailable, setFfmpegAvailable] = useState(false);
     const [recording, setRecording] = useState(false);
@@ -258,6 +258,8 @@ export function App() {
         const now = Date.now();
         // Throttle: tối thiểu 2 giây giữa các lần xử lý scan
         if (now - lastScanAtRef.current < 2000) return;
+
+        if (lastQr === text && !recording) return;
         lastScanAtRef.current = now;
 
         const order = parseOrderCode(text);
@@ -887,7 +889,7 @@ export function App() {
                                                 {config.overlayEnabled ? 'Tắt' : 'Bật'}
                                             </Button>
                                             <Input
-                                                placeholder='Mẫu: Mã: {order} • NV: {employee}'
+                                                placeholder='Mã: {order} • NV: {employee}'
                                                 value={config.overlayTemplate || ''}
                                                 onChange={(e) =>
                                                     setConfig({
@@ -898,7 +900,8 @@ export function App() {
                                             />
                                         </div>
                                         <div className='text-xs text-muted-foreground'>
-                                            Biến: {`{order}`}, {`{employee}`}, {`{time}`}, {`{elapsed}`}
+                                            Biến: {`{order}`}, {`{employee}`}, {`{time}`},{' '}
+                                            {`{elapsed}`}
                                         </div>
                                     </>
                                 )}
