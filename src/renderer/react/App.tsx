@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import jsQR from 'jsqr';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Input } from '../components/ui/input';
@@ -78,19 +77,12 @@ export function App() {
     const [editValue, setEditValue] = useState('');
     const [cameraReady, setCameraReady] = useState(false);
     const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
-    const [qrCamEnabled, setQrCamEnabled] = useState(false);
-    const [qrCamSupported, setQrCamSupported] = useState<boolean | null>(null);
-    const [qrSupportInfo, setQrSupportInfo] = useState<string>('');
-    const [lastQr, setLastQr] = useState<string | null>(null);
     const [showSettings, setShowSettings] = useState(true);
     const sessionIdRef = useRef<string | null>(null);
     const videoRef = useRef<HTMLVideoElement | null>(null);
-    const canvasRef = useRef<HTMLCanvasElement | null>(null);
-    const canvasCtxRef = useRef<CanvasRenderingContext2D | null>(null);
     const usbRef = useRef<UsbRecorder | null>(null);
     const currentOutPathRef = useRef<string | null>(null);
     const scannerInputRef = useRef<HTMLInputElement | null>(null);
-    const barcodeDetectorRef = useRef<any>(null);
     const lastScanAtRef = useRef<number>(0);
 
     // Determine if current focus is on a user-editable field
@@ -129,38 +121,6 @@ export function App() {
             } else {
                 setCameraReady(false);
             }
-            // Check BarcodeDetector support for camera QR
-            try {
-                const BD: any = (window as any).BarcodeDetector;
-                let supported: any = null;
-                if (BD && typeof BD.getSupportedFormats === 'function') {
-                    try {
-                        supported = await BD.getSupportedFormats();
-                    } catch (e) {
-                        supported = null;
-                    }
-                }
-                const ok = Array.isArray(supported) ? supported.includes('qr_code') : !!BD;
-                setQrCamSupported(ok);
-                setQrSupportInfo(
-                    `BarcodeDetector: ${!!BD}; formats: ${
-                        Array.isArray(supported) ? supported.join(',') : 'n/a'
-                    }`
-                );
-                if (BD && ok) {
-                    const fmts = ['qr_code', 'qr'];
-                    try {
-                        barcodeDetectorRef.current = new BD({ formats: fmts });
-                    } catch {
-                        try {
-                            barcodeDetectorRef.current = new BD();
-                        } catch {}
-                    }
-                }
-            } catch (e) {
-                setQrCamSupported(false);
-                setQrSupportInfo(`BarcodeDetector error: ${String(e)}`);
-            }
             refreshMetrics();
             // Load known employees from DB (fallback handled in main process)
             try {
@@ -197,7 +157,7 @@ export function App() {
         })();
     }, [config.employeeName, config.cameraMode, config.videoDeviceId]);
 
-    // Keyboard wedge scanner
+    // Keyboard wedge scanner (supports scanners with/without Enter suffix)
     useEffect(() => {
         // Keep a hidden input focused so scanner keystrokes land in our window
         const focusScanner = () => {
@@ -220,26 +180,45 @@ export function App() {
 
         let buffer = '';
         let lastTs = 0;
-        const THRESH = 250; // ms between keys; reset if slower (more tolerant)
+        let idleTimer: any = null;
+        const IDLE_COMMIT_MS = 180; // commit buffered scan if idle this long
+        const RESET_GAP_MS = 300; // reset buffer if pause longer than this
+
+        const commitIfAny = () => {
+            const text = buffer.trim();
+            buffer = '';
+            if (text.length >= 3) onScan(text);
+        };
+
         const onKey = (e: KeyboardEvent) => {
             // If user is typing in an input, don't interfere
             if (isEditableElement(document.activeElement)) return;
             const now = Date.now();
             const delta = now - lastTs;
             lastTs = now;
-            if (delta > THRESH) buffer = '';
+
+            // If a long pause happened between keystrokes, treat previous buffer as noise
+            if (delta > RESET_GAP_MS) buffer = '';
+
             if (e.key === 'Enter' || e.key === 'Tab') {
-                const text = buffer.trim();
-                buffer = '';
-                if (text.length >= 3) onScan(text);
+                // Many scanners send Enter/Tab as a terminator — commit immediately
+                commitIfAny();
                 e.preventDefault();
                 return;
             }
             if (e.key.length === 1) buffer += e.key;
+
+            // Re-arm idle timer to commit when scanner stops sending quickly
+            if (idleTimer) clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => {
+                // If user hasn't started typing into an input meanwhile, commit
+                if (!isEditableElement(document.activeElement)) commitIfAny();
+            }, IDLE_COMMIT_MS);
         };
         document.addEventListener('keydown', onKey);
         return () => {
             document.removeEventListener('keydown', onKey);
+            if (idleTimer) clearTimeout(idleTimer);
             scannerInputRef.current?.removeEventListener('blur', onBlur);
         };
     }, [recording, orderCode, config]);
@@ -259,7 +238,6 @@ export function App() {
         // Throttle: tối thiểu 2 giây giữa các lần xử lý scan
         if (now - lastScanAtRef.current < 2000) return;
 
-        if (lastQr === text && !recording) return;
         lastScanAtRef.current = now;
 
         const order = parseOrderCode(text);
@@ -488,7 +466,6 @@ export function App() {
             } catch {}
         }
         setCameraReady(false);
-        setQrCamEnabled(false);
         const saved = await window.api.setConfig({ ...config, employeeName: '' });
         setConfig(saved);
     }
@@ -511,99 +488,7 @@ export function App() {
         }
     }
 
-    // Camera QR scanning loop (BarcodeDetector with jsQR fallback)
-    useEffect(() => {
-        if (
-            !qrCamEnabled ||
-            !cameraReady ||
-            config.cameraMode !== 'usb' ||
-            !config.employeeName?.trim()
-        )
-            return;
-        let stopped = false;
-        let raf: number | null = null;
-        let lastValue = '';
-
-        const loop = async () => {
-            if (stopped) return;
-            try {
-                const video = videoRef.current as HTMLVideoElement | null;
-                const det = barcodeDetectorRef.current;
-                if (video && video.readyState >= 2) {
-                    // 1) Prefer native BarcodeDetector if available
-                    let decoded: string | null = null;
-                    if (det) {
-                        try {
-                            const results = await det.detect(video);
-                            if (results && results.length) {
-                                decoded = results[0].rawValue?.trim() || null;
-                            }
-                        } catch (e) {
-                            // Ignore and try fallback
-                        }
-                    }
-
-                    // 2) Fallback to jsQR if nothing found
-                    if (!decoded) {
-                        const vw = video.videoWidth;
-                        const vh = video.videoHeight;
-                        if (vw > 0 && vh > 0) {
-                            let cvs = canvasRef.current;
-                            if (!cvs) {
-                                cvs = document.createElement('canvas');
-                                canvasRef.current = cvs;
-                            }
-                            // Downscale to reduce CPU usage
-                            const maxW = 640;
-                            const scale = Math.min(1, maxW / vw);
-                            const cw = Math.max(1, Math.floor(vw * scale));
-                            const ch = Math.max(1, Math.floor(vh * scale));
-                            if (cvs.width !== cw || cvs.height !== ch) {
-                                cvs.width = cw;
-                                cvs.height = ch;
-                                canvasCtxRef.current = cvs.getContext('2d');
-                            }
-                            const ctx = canvasCtxRef.current || cvs.getContext('2d');
-                            if (ctx) {
-                                ctx.drawImage(video, 0, 0, cw, ch);
-                                const img = ctx.getImageData(0, 0, cw, ch);
-                                try {
-                                    const res = jsQR(img.data, cw, ch, {
-                                        inversionAttempts: 'dontInvert',
-                                    });
-                                    if (res && res.data) {
-                                        decoded = String(res.data).trim();
-                                    }
-                                } catch {}
-                            }
-                        }
-                    }
-
-                    if (decoded && decoded !== lastValue) {
-                        lastValue = decoded;
-                        setLastQr(decoded);
-                        await onScan(decoded);
-                    }
-                }
-            } catch (e) {
-                // Ignore decode errors, keep looping
-            }
-            raf = window.requestAnimationFrame(loop);
-        };
-        raf = window.requestAnimationFrame(loop);
-        return () => {
-            stopped = true;
-            if (raf) cancelAnimationFrame(raf);
-        };
-    }, [
-        qrCamEnabled,
-        cameraReady,
-        config.cameraMode,
-        recording,
-        orderCode,
-        onScan,
-        config.employeeName,
-    ]);
+    // Removed: Camera-based QR scanning (BarcodeDetector/jsQR)
 
     async function scanVideoDevices() {
         try {
@@ -777,7 +662,7 @@ export function App() {
                 {/* Hidden input to keep focus for scanner devices */}
                 <input ref={scannerInputRef} className='sr-only' aria-hidden='true' />
                 <Card>
-                    <div className='flex items-start justify-between'>
+                    <div className='flex items-start justify-between gap-3'>
                         <div>
                             <div className='font-semibold'>
                                 Trạng thái: <span>{recording ? 'Đang ghi hình' : 'Sẵn sàng'}</span>
@@ -786,7 +671,12 @@ export function App() {
                                 Mã đơn hiện tại: <span>{orderCode ?? '—'}</span>
                             </div>
                         </div>
-                        <div className='text-3xl font-bold'>{timer}</div>
+                        <div className='flex items-center gap-3'>
+                            <div className='text-3xl font-bold tabular-nums'>{timer}</div>
+                            <Button onClick={stopRecording} disabled={!recording}>
+                                Dừng
+                            </Button>
+                        </div>
                     </div>
                     <div className='mt-2'>
                         <div
@@ -852,28 +742,7 @@ export function App() {
                                                 Quét thiết bị
                                             </Button>
                                         </div>
-                                        <Label>Quét QR bằng camera</Label>
-                                        <div className='flex items-center gap-2'>
-                                            <Button
-                                                variant='outline'
-                                                onClick={() => setQrCamEnabled((v) => !v)}
-                                                disabled={
-                                                    !cameraReady || !config.employeeName?.trim()
-                                                }
-                                            >
-                                                {qrCamEnabled ? 'Tắt' : 'Bật'}
-                                            </Button>
-                                            <Button
-                                                variant='outline'
-                                                onClick={() => setLastQr(null)}
-                                                disabled={!lastQr}
-                                            >
-                                                Xoá QR
-                                            </Button>
-                                            <div className='text-sm text-muted-foreground'>
-                                                {lastQr ? ` QR gần nhất: ${lastQr}` : ''}
-                                            </div>
-                                        </div>
+                                        {/* Camera-based QR scanning removed */}
 
                                         <Label>Nhúng chữ vào video (USB)</Label>
                                         <div className='flex items-center gap-2'>

@@ -16,15 +16,7 @@ try {
     }
 } catch {}
 
-// Enable Chromium features for Shape Detection / BarcodeDetector on Windows/Linux
-// Do this before app.whenReady()
-try {
-    // Broadly enable experimental web features and Shape Detection stack
-    app.commandLine.appendSwitch('enable-experimental-web-platform-features');
-    // Try both feature switch types used across Chromium/Electron versions
-    app.commandLine.appendSwitch('enable-features', 'ShapeDetection,ShapeDetectionAPI,BarcodeDetection');
-    app.commandLine.appendSwitch('enable-blink-features', 'ShapeDetection,BarcodeDetector');
-} catch {}
+// Removed: BarcodeDetector/Shape Detection enabling switches (no camera QR)
 
 // Prefer SQLite store; fallback to JSON store if sqlite3 CLI unavailable
 let Store;
