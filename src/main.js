@@ -189,7 +189,75 @@ ipcMain.handle('transcode-webm-to-mp4-bg', async (_evt, { inputPath, outputPath,
     return { started: true };
 });
 
-ipcMain.handle('record-rtsp-start', async (_evt, { sessionId, rtspUrl, outputPath, transcode }) => {
+// Transcode any supported input to MP4 1080p (scale), blocking until done
+ipcMain.handle('transcode-to-1080', async (_evt, { inputPath, outputPath }) => {
+    await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
+    return new Promise((resolve, reject) => {
+        const args = [
+            '-y',
+            '-i',
+            inputPath,
+            '-vf',
+            'scale=1920:-2:flags=lanczos',
+            '-c:v',
+            'libx264',
+            '-preset',
+            'veryfast',
+            '-c:a',
+            'aac',
+            '-movflags',
+            '+faststart',
+            outputPath,
+        ];
+        const proc = spawn(ffmpegPath, args);
+        let stderr = '';
+        proc.stderr.on('data', (d) => (stderr += d.toString()));
+        proc.on('error', (e) => reject(e));
+        proc.on('close', (code) => {
+            if (code === 0) resolve({ ok: true });
+            else reject(new Error('ffmpeg failed: ' + stderr));
+        });
+    });
+});
+
+// Fire-and-forget 1080p transcode; optionally delete input file when done
+ipcMain.handle('transcode-to-1080-bg', async (_evt, { inputPath, outputPath, deleteInput }) => {
+    try {
+        await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
+    } catch {}
+    const args = [
+        '-y',
+        '-i',
+        inputPath,
+        '-vf',
+        'scale=1920:-2:flags=lanczos',
+        '-c:v',
+        'libx264',
+        '-preset',
+        'superfast',
+        '-c:a',
+        'aac',
+        '-movflags',
+        '+faststart',
+        outputPath,
+    ];
+    const proc = spawn(ffmpegPath, args);
+    let stderr = '';
+    proc.stderr.on('data', (d) => (stderr += d.toString()));
+    proc.on('close', async (code) => {
+        if (code === 0 && deleteInput) {
+            try {
+                await fs.promises.unlink(inputPath);
+            } catch {}
+        }
+        if (code !== 0) {
+            console.error('Background 1080p transcode failed', stderr);
+        }
+    });
+    return { started: true };
+});
+
+ipcMain.handle('record-rtsp-start', async (_evt, { sessionId, rtspUrl, outputPath, transcode, scale1080 }) => {
     await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
     const args = transcode
         ? [
@@ -197,12 +265,10 @@ ipcMain.handle('record-rtsp-start', async (_evt, { sessionId, rtspUrl, outputPat
               'tcp',
               '-i',
               rtspUrl,
-              '-c:v',
-              'libx264',
-              '-c:a',
-              'aac',
-              '-movflags',
-              '+faststart',
+              ...(scale1080 ? ['-vf', 'scale=1920:-2:flags=lanczos'] : []),
+              '-c:v', 'libx264',
+              '-c:a', 'aac',
+              '-movflags', '+faststart',
               '-y',
               outputPath,
           ]
@@ -211,10 +277,9 @@ ipcMain.handle('record-rtsp-start', async (_evt, { sessionId, rtspUrl, outputPat
               'tcp',
               '-i',
               rtspUrl,
-              '-c',
-              'copy',
-              '-movflags',
-              '+faststart',
+              ...(scale1080 ? ['-vf', 'scale=1920:-2:flags=lanczos'] : []),
+              ...(scale1080 ? ['-c:v', 'libx264', '-c:a', 'aac'] : ['-c', 'copy']),
+              '-movflags', '+faststart',
               '-y',
               outputPath,
           ];

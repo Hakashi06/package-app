@@ -13,8 +13,12 @@ contextBridge.exposeInMainWorld('api', {
         ipcRenderer.invoke('transcode-webm-to-mp4', { inputPath, outputPath }),
     transcodeWebmToMp4Bg: (inputPath, outputPath, deleteInput = true) =>
         ipcRenderer.invoke('transcode-webm-to-mp4-bg', { inputPath, outputPath, deleteInput }),
-    recordRtspStart: (sessionId, rtspUrl, outputPath, transcode) =>
-        ipcRenderer.invoke('record-rtsp-start', { sessionId, rtspUrl, outputPath, transcode }),
+    transcodeTo1080: (inputPath, outputPath) =>
+        ipcRenderer.invoke('transcode-to-1080', { inputPath, outputPath }),
+    transcodeTo1080Bg: (inputPath, outputPath, deleteInput = true) =>
+        ipcRenderer.invoke('transcode-to-1080-bg', { inputPath, outputPath, deleteInput }),
+    recordRtspStart: (sessionId, rtspUrl, outputPath, transcode, scale1080 = false) =>
+        ipcRenderer.invoke('record-rtsp-start', { sessionId, rtspUrl, outputPath, transcode, scale1080 }),
     recordRtspStop: (sessionId) => ipcRenderer.invoke('record-rtsp-stop', { sessionId }),
     logSession: (s) => ipcRenderer.invoke('log-session', s),
     getSessions: () => ipcRenderer.invoke('get-sessions'),

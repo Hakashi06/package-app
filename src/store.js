@@ -20,6 +20,7 @@ class Store {
                         rtspUrl: '',
                         employeeName: '',
                         rtspTranscode: false,
+                        scale1080: false,
                         videoDeviceId: null,
                         videoDeviceLabel: null,
                     },

@@ -14,6 +14,7 @@ type Config = {
     rtspTranscode: boolean;
     overlayEnabled?: boolean;
     overlayTemplate?: string; // supports {order}, {employee}, {time}
+    scale1080?: boolean;
 };
 
 type Session = {
@@ -60,6 +61,7 @@ export function App() {
         rtspTranscode: false,
         overlayEnabled: true,
         overlayTemplate: '{order}-{time}',
+        scale1080: false,
     });
     const [ffmpegAvailable, setFfmpegAvailable] = useState(false);
     const [recording, setRecording] = useState(false);
@@ -192,7 +194,7 @@ export function App() {
 
         const onKey = (e: KeyboardEvent) => {
             // If user is typing in an input, don't interfere
-            if (isEditableElement(document.activeElement)) return;
+            // if (isEditableElement(document.activeElement)) return;
             const now = Date.now();
             const delta = now - lastTs;
             lastTs = now;
@@ -305,7 +307,13 @@ export function App() {
         );
 
         try {
-            await window.api.recordRtspStart(sessionId, rtspUrl, outPath, !!config.rtspTranscode);
+            await window.api.recordRtspStart(
+                sessionId,
+                rtspUrl,
+                outPath,
+                !!config.rtspTranscode,
+                !!config.scale1080
+            );
             currentOutPathRef.current = outPath; // remember for stop/log
 
             sessionIdRef.current = sessionId;
@@ -336,18 +344,34 @@ export function App() {
             const anyBlob: any = blob as any;
             const data = await blob.arrayBuffer();
             if (anyBlob && anyBlob.type && String(anyBlob.type).startsWith('video/mp4')) {
-                // Direct MP4: write final file and return fast
-                await window.api.writeFile(filePath, data);
-                savedAsMp4 = true;
+                if (ffmpegAvailable && config.scale1080) {
+                    // Save to tmp then upscale to 1080p in background
+                    const tmpPath = window.api.pathJoin(window.api.tmpDir(), `${sessionId}.mp4`);
+                    await window.api.writeFile(tmpPath, data);
+                    window.api
+                        .transcodeTo1080Bg(tmpPath, filePath, true)
+                        .catch((e: any) => console.error('BG 1080p transcode failed', e));
+                    savedAsMp4 = true;
+                } else {
+                    // Direct MP4: write final file and return fast
+                    await window.api.writeFile(filePath, data);
+                    savedAsMp4 = true;
+                }
             } else if (ffmpegAvailable) {
                 try {
                     // Write WEBM once, kick off background transcode to MP4, return immediately
                     const tmpPath = window.api.pathJoin(window.api.tmpDir(), `${sessionId}.webm`);
                     await window.api.writeFile(tmpPath, data);
                     // Fire-and-forget; input will be deleted when done
-                    window.api
-                        .transcodeWebmToMp4Bg(tmpPath, filePath, true)
-                        .catch((e: any) => console.error('BG transcode failed', e));
+                    if (config.scale1080) {
+                        window.api
+                            .transcodeTo1080Bg(tmpPath, filePath, true)
+                            .catch((e: any) => console.error('BG 1080p transcode failed', e));
+                    } else {
+                        window.api
+                            .transcodeWebmToMp4Bg(tmpPath, filePath, true)
+                            .catch((e: any) => console.error('BG transcode failed', e));
+                    }
                     savedAsMp4 = true; // We'll deliver MP4 later; session logs now
                 } catch (e) {
                     console.error('Transcode (bg) kickoff failed', e);
@@ -824,6 +848,20 @@ export function App() {
                                         ? 'Có sẵn'
                                         : 'Không tìm thấy (cần để MP4/RTSP)'}
                                 </div>
+                                <Label>Xuất 1080p (scale)</Label>
+                                <Select
+                                    value={String(!!config.scale1080)}
+                                    onChange={(e) =>
+                                        setConfig({
+                                            ...config,
+                                            scale1080: e.target.value === 'true',
+                                        })
+                                    }
+                                    disabled={!ffmpegAvailable}
+                                >
+                                    <option value='false'>Tắt</option>
+                                    <option value='true'>Bật</option>
+                                </Select>
                             </div>
                             <div className='flex justify-end gap-2'>
                                 <Button

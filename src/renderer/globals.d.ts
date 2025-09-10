@@ -14,11 +14,18 @@ declare global {
             outputPath: string,
             deleteInput?: boolean
         ) => Promise<{ started: boolean }>;        
+        transcodeTo1080: (inputPath: string, outputPath: string) => Promise<any>;
+        transcodeTo1080Bg: (
+            inputPath: string,
+            outputPath: string,
+            deleteInput?: boolean
+        ) => Promise<{ started: boolean }>;
             recordRtspStart: (
                 sessionId: string,
                 rtspUrl: string,
                 outputPath: string,
-                transcode: boolean
+                transcode: boolean,
+                scale1080?: boolean
             ) => Promise<any>;
             recordRtspStop: (sessionId: string) => Promise<any>;
             logSession: (s: any) => Promise<any>;
